@@ -478,7 +478,7 @@
         <!-- TIMER -->
         <section class="section timer-section" id="timer">
             <div class="timer-title">⏳ The Countdown Has Begun</div>
-            <div class="timer-date-label">📅 Monday, 6th April 2026 · Ravenshaw University - Ampitheatre</div>
+            <div class="timer-date-label">📅 Sunday, 6th April 2026 · Ravenshaw University Campus</div>
             <div class="timer-grid">
                 <div class="timer-box fade-in-up"><div class="timer-num" id="tDays">00</div><div class="timer-label">Days</div><div class="timer-pulse"></div></div>
                 <div class="timer-colon">:</div>
@@ -938,36 +938,49 @@ updateTimer();setInterval(updateTimer,1000);
 let clockEnabled = true; // Auto-enabled by default
 let clockPlaying = false;
 let audioUnlocked = false;
+let isTimerVisible = false;
 const clockAudio = new Audio('The_Eleventh_Hour.mp3');
-clockAudio.loop = true; // Loop the doomsday audio
+clockAudio.loop = true;
+clockAudio.preload = 'auto';
 
-// Unlock audio context cleanly on first user interaction to bypass browser autoplay limits
-function unlockAudio() {
+// Browsers block autoplay. We must unlock audio on the first real user interaction.
+function handleFirstInteraction() {
     if (audioUnlocked) return;
+    
+    // Attempt silent play to unlock context
     clockAudio.play().then(() => {
-        clockAudio.pause();
-        clockAudio.currentTime = 0;
         audioUnlocked = true;
-        const rect = document.getElementById('timer').getBoundingClientRect();
-        if (rect.top < window.innerHeight && rect.bottom > 0 && clockEnabled) {
-            startDoomsdayClockSound();
+        // Remove the listeners once unlocked
+        ['click', 'touchstart', 'keydown'].forEach(e => document.removeEventListener(e, handleFirstInteraction));
+        
+        // If the user has already scrolled to the timer, let it continue playing
+        if (isTimerVisible && clockEnabled) {
+            clockPlaying = true;
+            updateClockBtn(true);
+        } else {
+            // Otherwise, pause it immediately so it doesn't play in the background
+            clockAudio.pause();
+            clockAudio.currentTime = 0;
         }
-    }).catch(err => console.log('Audio unlock pending...'));
-    ['click', 'touchstart', 'keydown', 'scroll'].forEach(evt => document.removeEventListener(evt, unlockAudio));
+    }).catch(err => {
+        console.log('Unlock pending further interaction...');
+    });
 }
-['click', 'touchstart', 'keydown', 'scroll'].forEach(evt => document.addEventListener(evt, unlockAudio, {once: true}));
+// Note: 'scroll' does NOT count as a user gesture for audio, only clicks/taps/keys
+['click', 'touchstart', 'keydown'].forEach(e => document.addEventListener(e, handleFirstInteraction));
 
 function startDoomsdayClockSound() {
     if (!clockEnabled) return;
+    
     const playPromise = clockAudio.play();
     if (playPromise !== undefined) {
         playPromise.then(() => {
             clockPlaying = true;
             updateClockBtn(true);
         }).catch(err => {
-            console.log('Autoplay blocked. Interaction needed.');
+            console.log('Autoplay blocked by browser. User must click first.');
             clockPlaying = false;
-            updateClockBtn(false, true);
+            updateClockBtn(false, true); // Show "Blocked" UI
         });
     }
 }
@@ -979,9 +992,26 @@ function stopDoomsdayClockSound() {
 }
 
 function toggleClockSound() {
+    // If it was blocked (enabled but not playing), clicking the button forces play without disabling
+    if (clockEnabled && !clockPlaying) {
+        const playPromise = clockAudio.play();
+        if (playPromise !== undefined) {
+            playPromise.then(() => {
+                audioUnlocked = true;
+                clockPlaying = true;
+                updateClockBtn(true);
+            }).catch(e => updateClockBtn(false, true));
+        }
+        return;
+    }
+
     clockEnabled = !clockEnabled;
     if (clockEnabled) {
-        startDoomsdayClockSound();
+        clockAudio.play().then(() => {
+            audioUnlocked = true;
+            clockPlaying = true;
+            updateClockBtn(true);
+        }).catch(e => updateClockBtn(false, true));
     } else {
         stopDoomsdayClockSound();
         clockAudio.currentTime = 0;
@@ -1012,7 +1042,8 @@ function updateClockBtn(playing, blocked = false) {
 const timerSection = document.getElementById('timer');
 const clockObserver = new IntersectionObserver(entries => {
     entries.forEach(entry => {
-        if (entry.isIntersecting) {
+        isTimerVisible = entry.isIntersecting;
+        if (isTimerVisible) {
             startDoomsdayClockSound();
         } else {
             stopDoomsdayClockSound();
